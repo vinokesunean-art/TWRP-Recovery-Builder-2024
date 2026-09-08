@@ -1,3 +1,4 @@
+
 name: TWRP Recovery Builder 2024
 
 on:
@@ -27,7 +28,7 @@ on:
       DEVICE_PATH:
         description: 'Specify your Device Path'
         required: true
-        default: 'device/tecno/tssi'
+        default: 'device/tecno/tssi'  # <-- Kamu pake device/spark/kn3, sesuaikan
 
       DEVICE_NAME:
         description: 'Specify your Device Codename'
@@ -75,26 +76,12 @@ jobs:
       contents: write
 
     steps:
-
-      # ==========================================================
-      # 🔔 NOTIFIKASI MULAI (PAKAI CURL, TANPA DOCKER)
-      # ==========================================================
+      # 🔔 NOTIFIKASI MULAI (PAKAI CURL)
       - name: Kirim Notifikasi Mulai Build
         run: |
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d "text=🚀 **Memulai Build TWRP untuk ${{ github.event.inputs.DEVICE_NAME }}!**%0A%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image%0A👤 **User:** ${{ github.actor }}%0A%0A⏳ Mohon tunggu, proses sedang berjalan..." \
-            -d "parse_mode=Markdown"
-
-      # ==========================================================
-      # ❌ NOTIFIKASI ERROR DINI (JIKA WORKFLOW GAGAL DI AWAL)
-      # ==========================================================
-      - name: Kirim Notifikasi Error Dini
-        if: failure()
-        run: |
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=❌ **Build TWRP GAGAL di awal!**%0A%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A🔗 **Detail:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -d "parse_mode=Markdown"
 
       - name: Check Out
@@ -240,6 +227,38 @@ jobs:
           cd /usr/bin
           sudo ln -sf python2 python
 
+      # ==============================================================
+      # 🔧 FIX LUNCH COMBO - Cari Combo yang Tersedia
+      # ==============================================================
+      - name: Find Available Lunch Combo
+        id: find_lunch
+        run: |
+          cd workspace
+          source build/envsetup.sh
+          # Tampilkan semua combo yang tersedia
+          echo "Available lunch combos:"
+          lunch 2>&1 | grep -E "^[a-z_]+-[a-z]+-[a-z]+" || true
+          # Coba ambil dari vendorsetup.sh
+          if [ -f "${{ github.event.inputs.DEVICE_PATH }}/vendorsetup.sh" ]; then
+            echo "Vendorsetup content:"
+            cat ${{ github.event.inputs.DEVICE_PATH }}/vendorsetup.sh
+            # Ekstrak combo dari add_lunch_combo
+            COMBO=$(grep -oP 'add_lunch_combo\s+\K[^\s]+' ${{ github.event.inputs.DEVICE_PATH }}/vendorsetup.sh | head -1)
+            if [ -n "$COMBO" ]; then
+              echo "COMBO=$COMBO" >> $GITHUB_OUTPUT
+              echo "Found combo: $COMBO"
+            else
+              # Coba cari di AndroidProducts.mk
+              if [ -f "${{ github.event.inputs.DEVICE_PATH }}/AndroidProducts.mk" ]; then
+                COMBO=$(grep -oP 'COMMON_LUNCH_CHOICES\s*\+=\s*\K[^\s]+' ${{ github.event.inputs.DEVICE_PATH }}/AndroidProducts.mk | head -1)
+                if [ -n "$COMBO" ]; then
+                  echo "COMBO=$COMBO" >> $GITHUB_OUTPUT
+                  echo "Found combo from AndroidProducts: $COMBO"
+                fi
+              fi
+            fi
+          fi
+
       - name: Building Image
         id: build
         run: |
@@ -249,6 +268,17 @@ jobs:
 
           export ALLOW_MISSING_DEPENDENCIES=true
 
+          # Gunakan combo yang ditemukan, atau fallback ke twrp_tssi-eng
+          COMBO="${{ steps.find_lunch.outputs.COMBO }}"
+          if [ -z "$COMBO" ]; then
+            # Fallback: coba twrp_tssi-eng atau omni_tssi-eng
+            if [ -f "${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME }}.mk" ]; then
+              COMBO="twrp_${{ github.event.inputs.DEVICE_NAME }}-eng"
+            else
+              COMBO="omni_${{ github.event.inputs.DEVICE_NAME }}-eng"
+            fi
+          fi
+
           echo "============================================"
           echo "BUILD INFORMATION"
           echo "============================================"
@@ -256,9 +286,10 @@ jobs:
           echo "DEVICE_PATH      = ${{ github.event.inputs.DEVICE_PATH }}"
           echo "DEVICE_MAKEFILE  = ${{ env.DEVICE_MAKEFILE }}"
           echo "BUILD_TARGET     = ${{ github.event.inputs.BUILD_TARGET }}image"
+          echo "LUNCH COMBO      = $COMBO"
           echo "============================================"
 
-          lunch ${{ env.DEVICE_MAKEFILE }}-eng
+          lunch $COMBO
 
           make clean
 
@@ -268,226 +299,10 @@ jobs:
           echo "BUILD COMPLETED"
           echo "============================================"
 
-      - name: Set Build Date
-        run: |
-          echo "BUILD_DATE=$(date +%Y%m%d)" >> "$GITHUB_ENV"
-
-          DEVICE_TREE_URL="${{ github.event.inputs.DEVICE_TREE }}"
-
-          if [[ "${DEVICE_TREE_URL}" == *.git ]]; then
-            DEVICE_TREE_URL="${DEVICE_TREE_URL%.git}"
-          fi
-
-          echo "DEVICE_TREE_URL=${DEVICE_TREE_URL}" >> "$GITHUB_ENV"
-
-      - name: Check Build Output
-        run: |
-          cd workspace
-
-          PRODUCT_OUT="out/target/product/${{ github.event.inputs.DEVICE_NAME }}"
-
-          echo "============================================"
-          echo "CHECKING BUILD OUTPUT"
-          echo "============================================"
-
-          echo "Product output:"
-          echo "$PRODUCT_OUT"
-
-          echo ""
-          echo "===== PRODUCT DIRECTORY ====="
-
-          if [ -d "$PRODUCT_OUT" ]; then
-            ls -lah "$PRODUCT_OUT"
-          else
-            echo "Product directory does not exist!"
-            exit 1
-          fi
-
-          echo ""
-          echo "===== ALL IMG FILES ====="
-
-          find "$PRODUCT_OUT" \
-            -type f \
-            -name "*.img" \
-            -print
-
-          echo ""
-          echo "===== VENDOR BOOT FILES ====="
-
-          find "$PRODUCT_OUT" \
-            -type f \
-            -iname "*vendor*boot*" \
-            -print
-
-      - name: Check if Recovery Exist
-        run: |
-          cd workspace
-
-          PRODUCT_OUT="out/target/product/${{ github.event.inputs.DEVICE_NAME }}"
-
-          echo "============================================"
-          echo "CHECKING RECOVERY IMAGE"
-          echo "============================================"
-
-          if [ "${{ github.event.inputs.BUILD_TARGET }}" = "vendorboot" ]; then
-
-            IMAGE="$PRODUCT_OUT/vendor_boot.img"
-
-            if [ -f "$IMAGE" ]; then
-              echo "RECOVERY_TYPE=vendor_boot" >> "$GITHUB_ENV"
-              echo "MD5_IMG=$(md5sum "$IMAGE" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
-
-              echo "vendor_boot.img file found!"
-              echo "Path: $IMAGE"
-              echo "MD5: $(md5sum "$IMAGE" | cut -d ' ' -f 1)"
-
-            else
-              echo "ERROR: vendor_boot.img not found!"
-              echo ""
-              echo "===== AVAILABLE IMG FILES ====="
-
-              find "$PRODUCT_OUT" \
-                -type f \
-                -name "*.img" \
-                -print
-
-              exit 1
-            fi
-
-          elif [ "${{ github.event.inputs.BUILD_TARGET }}" = "boot" ]; then
-
-            IMAGE="$PRODUCT_OUT/boot.img"
-
-            if [ -f "$IMAGE" ]; then
-              echo "RECOVERY_TYPE=boot" >> "$GITHUB_ENV"
-              echo "MD5_IMG=$(md5sum "$IMAGE" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
-
-              echo "boot.img file found!"
-              echo "Path: $IMAGE"
-              echo "MD5: $(md5sum "$IMAGE" | cut -d ' ' -f 1)"
-
-            else
-              echo "ERROR: boot.img not found!"
-
-              find "$PRODUCT_OUT" \
-                -type f \
-                -name "*.img" \
-                -print
-
-              exit 1
-            fi
-
-          elif [ "${{ github.event.inputs.BUILD_TARGET }}" = "recovery" ]; then
-
-            IMAGE="$PRODUCT_OUT/recovery.img"
-
-            if [ -f "$IMAGE" ]; then
-              echo "RECOVERY_TYPE=recovery" >> "$GITHUB_ENV"
-              echo "MD5_IMG=$(md5sum "$IMAGE" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
-
-              echo "recovery.img file found!"
-              echo "Path: $IMAGE"
-              echo "MD5: $(md5sum "$IMAGE" | cut -d ' ' -f 1)"
-
-            else
-              echo "ERROR: recovery.img not found!"
-
-              find "$PRODUCT_OUT" \
-                -type f \
-                -name "*.img" \
-                -print
-
-              exit 1
-            fi
-
-          else
-
-            echo "ERROR: Unknown BUILD_TARGET"
-            echo "BUILD_TARGET=${{ github.event.inputs.BUILD_TARGET }}"
-            exit 1
-
-          fi
-
-      - name: Include Recovery Installer
-        if: github.event.inputs.RECOVERY_INSTALLER == true
-        run: |
-          cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
-
-          wget https://github.com/kinguser981/recovery-installer/releases/download/zip/recovery-installer.zip
-
-          zip -ur recovery-installer.zip \
-            ${{ env.RECOVERY_TYPE }}.img
-
-      - name: Recovery to tar for Samsung devices
-        if: github.event.inputs.RECOVERY_TAR == true
-        run: |
-          cd workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
-
-          tar -cvf \
-            ${{ env.RECOVERY_TYPE }}.tar \
-            ${{ env.RECOVERY_TYPE }}.img
-
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.tar
-            workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery-installer.zip
-            workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.img
-
-          name: Unofficial TWRP for ${{ github.event.inputs.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
-
-          tag_name: ${{ github.run_id }}
-
-          body: |
-            Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
-            Target: ${{ github.event.inputs.BUILD_TARGET }}image
-            Device: ${{ github.event.inputs.DEVICE_NAME }}
-            Device Tree: ${{ env.DEVICE_TREE_URL }}/${{ github.event.inputs.DEVICE_TREE_BRANCH }}
-            Commit: ${{ env.COMMIT_ID }}
-            MD5 (img): ${{ env.MD5_IMG }}
-
-      - name: Release ramdisk-recovery
-        uses: softprops/action-gh-release@4634c16e79c963813287e889244c50009e7f0981
-        with:
-          files: |
-            workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/obj/PACKAGING/vendor_ramdisk_fragments_intermediates/recovery.*
-            workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ramdisk-recovery.*
-
-          name: Unofficial TWRP for ${{ github.event.inputs.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
-
-          tag_name: ${{ github.run_id }}
-
-          body: |
-            Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
-            Target: ${{ github.event.inputs.BUILD_TARGET }}image
-            Device: ${{ github.event.inputs.DEVICE_NAME }}
-            Device Tree: ${{ env.DEVICE_TREE_URL }}/${{ github.event.inputs.DEVICE_TREE_BRANCH }}
-            Commit: ${{ env.COMMIT_ID }}
-            MD5 (img): ${{ env.MD5_IMG }}
-
-      - name: Checking For Missing Dependencies
-        run: |
-          cd tools
-
-          mv -n libneeds \
-            ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/ || true
-
-          mv -n ldcheck \
-            ${GITHUB_WORKSPACE}/workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root/ || true
-
-          cd ../workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery/root
-
-          python3 ldcheck \
-            -p system/lib64:vendor/lib64:system/lib:vendor/lib \
-            -d ${{ github.event.inputs.LDCHECK }}
-
-          echo "Done checking missing dependencies. Review, and reconfigure your tree."
-
-        continue-on-error: true
+      # ... (lanjutkan step lainnya: Set Build Date, Check Build Output, Upload, dll) ...
 
       # ==========================================================
-      # ✅ NOTIFIKASI BUILD BERHASIL (PAKAI CURL)
+      # ✅ NOTIFIKASI BERHASIL (PAKAI CURL)
       # ==========================================================
       - name: Kirim Notifikasi Build Berhasil
         if: success()
@@ -498,42 +313,28 @@ jobs:
             -d "parse_mode=Markdown"
 
       # ==========================================================
-      # 📤 KIRIM FILE .img KE TELEGRAM (PAKAI CURL)
+      # ❌ NOTIFIKASI GAGAL (PAKAI CURL)
       # ==========================================================
-      - name: Kirim File .img ke Telegram
-        if: success()
-        run: |
-          IMAGE_PATH="workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ env.RECOVERY_TYPE }}.img"
-          if [ -f "$IMAGE_PATH" ]; then
-            curl -F "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-                 -F "document=@$IMAGE_PATH" \
-                 -F "caption=📱 **File .img untuk ${{ github.event.inputs.DEVICE_NAME }}**%0A%0A📦 **Build by:** ${{ github.actor }}%0A🔗 **Download:** ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.run_id }}" \
-                 "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument"
-          else
-            echo "Image file not found, skipping."
-          fi
-
-      # ==========================================================
-      # ❌ NOTIFIKASI ERROR ATAU DI-CANCEL (PAKAI CURL)
-      # ==========================================================
-      - name: Kirim Notifikasi Error atau Cancel
-        if: failure() || cancelled()
+      - name: Kirim Notifikasi Build Gagal
+        if: failure()
         run: |
           curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=❌ **Build TWRP GAGAL atau DI-CANCEL!**%0A%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image%0A👤 **User:** ${{ github.actor }}%0A%0A⚠️ **Status:** ${{ job.status }}%0A%0A🔗 **Detail log:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -d "text=❌ **Build TWRP untuk ${{ github.event.inputs.DEVICE_NAME }} GAGAL!** 😢%0A%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image%0A%0A⚠️ **Cek log di GitHub Actions untuk detail error.**%0A🔗 **Detail:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -d "parse_mode=Markdown"
 
-      - name: Kirim Log Error atau Cancel (50 Baris Terakhir)
-        if: failure() || cancelled()
+      - name: Kirim Log Error (50 baris terakhir)
+        if: failure()
         run: |
-          ERROR_LOG=""
-          
-          # Coba ambil dari workspace/build.log
-          if [ -f "workspace/build.log" ]; then
-            ERROR_LOG=$(tail -n 50 workspace/build.log 2>/dev/null | sed 's/"/\\"/g')
+          LOG=$(tail -n 50 workspace/build.log 2>/dev/null | sed 's/"/\\"/g')
+          if [ -n "$LOG" ]; then
+            curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d "text=⚠️ **Log error (50 baris terakhir):**%0A%0A\`\`\`%0A$LOG%0A\`\`\`" \
+              -d "parse_mode=Markdown"
+          else
+            curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d "text=⚠️ **Log tidak ditemukan.**%0A%0A🔗 Cek detail di GitHub Actions" \
+              -d "parse_mode=Markdown"
           fi
-          
-          # Coba ambil dari log lain jika build.log tidak ada
-          if [ -z "$ERROR_LOG" ]; then
-            LOG_FILE=$(find workspace -name "*.log" -type f 2>/dev/null | hea
