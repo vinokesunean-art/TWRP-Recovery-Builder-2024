@@ -77,23 +77,25 @@ jobs:
     steps:
 
       # ==========================================================
-      # 🔔 NOTIFIKASI MULAI BUILD (PALING PERTAMA!)
+      # 🔔 NOTIFIKASI MULAI (PAKAI CURL, TANPA DOCKER)
       # ==========================================================
       - name: Kirim Notifikasi Mulai Build
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          message: |
-            🚀 **Memulai Build TWRP untuk ${{ github.event.inputs.DEVICE_NAME }}!**
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=🚀 **Memulai Build TWRP untuk ${{ github.event.inputs.DEVICE_NAME }}!**%0A%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image%0A👤 **User:** ${{ github.actor }}%0A%0A⏳ Mohon tunggu, proses sedang berjalan..." \
+            -d "parse_mode=Markdown"
 
-            📦 **Repo:** ${{ github.repository }}
-            🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}
-            📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}
-            🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image
-            👤 **User:** ${{ github.actor }}
-
-            ⏳ Mohon tunggu, proses sedang berjalan...
+      # ==========================================================
+      # ❌ NOTIFIKASI ERROR DINI (JIKA WORKFLOW GAGAL DI AWAL)
+      # ==========================================================
+      - name: Kirim Notifikasi Error Dini
+        if: failure()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=❌ **Build TWRP GAGAL di awal!**%0A%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A🔗 **Detail:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -d "parse_mode=Markdown"
 
       - name: Check Out
         uses: actions/checkout@v3
@@ -485,26 +487,18 @@ jobs:
         continue-on-error: true
 
       # ==========================================================
-      # ✅ NOTIFIKASI BUILD BERHASIL
+      # ✅ NOTIFIKASI BUILD BERHASIL (PAKAI CURL)
       # ==========================================================
       - name: Kirim Notifikasi Build Berhasil
         if: success()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          message: |
-            ✅ **Build TWRP untuk ${{ github.event.inputs.DEVICE_NAME }} BERHASIL!** 🎉
-
-            📦 **Repo:** ${{ github.repository }}
-            🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}
-            📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}
-            🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image
-
-            🔗 **Detail:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=✅ **Build TWRP untuk ${{ github.event.inputs.DEVICE_NAME }} BERHASIL!** 🎉%0A%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image%0A%0A🔗 **Detail:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -d "parse_mode=Markdown"
 
       # ==========================================================
-      # 📤 KIRIM FILE .img KE TELEGRAM (JIKA BERHASIL)
+      # 📤 KIRIM FILE .img KE TELEGRAM (PAKAI CURL)
       # ==========================================================
       - name: Kirim File .img ke Telegram
         if: success()
@@ -520,26 +514,15 @@ jobs:
           fi
 
       # ==========================================================
-      # ❌ NOTIFIKASI ERROR ATAU DI-CANCEL (PALING BAWAH)
+      # ❌ NOTIFIKASI ERROR ATAU DI-CANCEL (PAKAI CURL)
       # ==========================================================
       - name: Kirim Notifikasi Error atau Cancel
         if: failure() || cancelled()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          message: |
-            ❌ **Build TWRP GAGAL atau DI-CANCEL!**
-
-            📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}
-            📦 **Repo:** ${{ github.repository }}
-            🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}
-            🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image
-            👤 **User:** ${{ github.actor }}
-
-            ⚠️ **Status:** ${{ job.status }}
-
-            🔗 **Detail log:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=❌ **Build TWRP GAGAL atau DI-CANCEL!**%0A%0A📱 **Device:** ${{ github.event.inputs.DEVICE_NAME }}%0A📦 **Repo:** ${{ github.repository }}%0A🌿 **Branch:** ${{ github.event.inputs.MANIFEST_BRANCH }}%0A🔧 **Target:** ${{ github.event.inputs.BUILD_TARGET }}image%0A👤 **User:** ${{ github.actor }}%0A%0A⚠️ **Status:** ${{ job.status }}%0A%0A🔗 **Detail log:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -d "parse_mode=Markdown"
 
       - name: Kirim Log Error atau Cancel (50 Baris Terakhir)
         if: failure() || cancelled()
@@ -553,20 +536,4 @@ jobs:
           
           # Coba ambil dari log lain jika build.log tidak ada
           if [ -z "$ERROR_LOG" ]; then
-            LOG_FILE=$(find workspace -name "*.log" -type f 2>/dev/null | head -1)
-            if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
-              ERROR_LOG=$(tail -n 50 "$LOG_FILE" 2>/dev/null | sed 's/"/\\"/g')
-            fi
-          fi
-          
-          if [ -n "$ERROR_LOG" ]; then
-            curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "text=⚠️ **Log terakhir (50 baris):**%0A%0A\`\`\`%0A$ERROR_LOG%0A\`\`\`" \
-              -d "parse_mode=Markdown"
-          else
-            # Kirim pesan alternatif jika log tidak ditemukan
-            if [ "${{ job.status }}" == "cancelled" ]; then
-              STATUS_MSG="⏹️ Workflow di-cancel manual oleh user."
-            else
-              STATUS_MSG="❌ Wo
+            LOG_FILE=$(find workspace -name "*.log" -type f 2>/dev/null | hea
