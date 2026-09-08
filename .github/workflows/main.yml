@@ -1,0 +1,2 @@
+cd workspace
+grep -r "vendorbootimage\|vendor_bootimage\|recovery\|boot" device/tecno/tssi/
